@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>StreamWeave Custom Receiver</title>
+  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+</head>
+<body>
+  <h1>Waiting for Cast URL request..</h1>
+  <script>
+    const NAMESPACE = 'urn:x-cast:streamweave.cast';
+    const context = cast.framework.CastReceiverContext.getInstance();
+    context.addCustomMessageListener(NAMESPACE, (event) => {
+      if (event.data.type === 'LOAD_URL' && event.data.url) {
+        window.location.href = event.data.url;
+      }
+    });
+    context.start();
+  </script>
+</body>
+</html>
