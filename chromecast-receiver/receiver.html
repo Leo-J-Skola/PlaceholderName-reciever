@@ -1,19 +1,80 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>StreamWeave Custom Receiver</title>
+  <meta charset="utf-8" />
+  <title>StreamWeave Receiver</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <style>
+    html, body { margin:0; padding:0; height:100%; background:#000; color:#ddd; font-family:Segoe UI, Roboto, Arial, sans-serif; }
+    .status { position:absolute; left:0; right:0; bottom:0; padding:8px 12px; background:rgba(0,0,0,.5); font-size:13px; }
+    .hidden { display:none; }
+    #frame { position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; }
+    .center { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#aaa; }
+  </style>
 </head>
 <body>
-  <h1>Waiting for Cast URL request..</h1>
+  <div class="center" id="splash">Waiting for URL…</div>
+  <iframe id="frame" class="hidden" allow="autoplay; fullscreen"></iframe>
+  <div class="status" id="status"></div>
+
   <script>
     const NAMESPACE = 'urn:x-cast:streamweave.cast';
     const context = cast.framework.CastReceiverContext.getInstance();
-    context.addCustomMessageListener(NAMESPACE, (event) => {
-      if (event.data.type === 'LOAD_URL' && event.data.url) {
-        window.location.href = event.data.url;
+    const playerManager = context.getPlayerManager();
+
+    const statusEl = document.getElementById('status');
+    const frameEl = document.getElementById('frame');
+    const splashEl = document.getElementById('splash');
+
+    function setStatus(msg) { statusEl.textContent = msg || ''; }
+    function showIframe(url) {
+      playerManager.stop();
+      frameEl.classList.remove('hidden');
+      splashEl.classList.add('hidden');
+      frameEl.src = url;
+    }
+    function isHls(url) {
+      const u = (url || '').toLowerCase();
+      return u.endsWith('.m3u8') || u.includes('/hls/') || u.includes('format=m3u8');
+    }
+
+    context.addCustomMessageListener(NAMESPACE, async (event) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data || {};
+        if (!data || data.type !== 'LOAD_URL' || !data.url) { setStatus('Invalid LOAD_URL payload'); return; }
+        const url = data.url;
+        setStatus('Loading: ' + url);
+
+        if (isHls(url)) {
+          // Chromecast remote support 
+          frameEl.classList.add('hidden'); 
+          splashEl.classList.add('hidden');
+
+          const mediaInfo = new cast.framework.messages.MediaInformation();
+          mediaInfo.contentId = url;
+          mediaInfo.contentType = 'application/vnd.apple.mpegurl';
+          mediaInfo.streamType = cast.framework.messages.StreamType.LIVE;
+
+          const loadReq = new cast.framework.messages.LoadRequestData();
+          loadReq.media = mediaInfo;
+
+          await playerManager.load(loadReq);
+          setStatus('Playing HLS: ' + url);
+        } else {
+          
+          showIframe(url);
+          setStatus('Opened page: ' + url);
+        }
+      } catch (ex) {
+        setStatus('Error: ' + (ex?.message || ex));
       }
     });
+    playerManager.addEventListener(cast.framework.events.EventType.PLAYER_LOAD_COMPLETE, () => setStatus('Player load complete'));
+    playerManager.addEventListener(cast.framework.events.EventType.ERROR, (e) => setStatus('Player error: ' + e?.error));
+    playerManager.addEventListener(cast.framework.events.EventType.MEDIA_STATUS, () => {
+    });
+
     context.start();
   </script>
 </body>
