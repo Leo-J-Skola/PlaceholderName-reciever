@@ -2,94 +2,81 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>StreamWeave Receiver (Web Page Loader)</title>
+  <title>StreamWeave Receiver (v2, Web Page Loader)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script src="//www.gstatic.com/cast/sdk/libs/receiver/2.0.0/cast_receiver.js"></script>
   <style>
-    html, body { margin:0; padding:0; height:100%; background:#000; color:#ddd; font-family:Segoe UI, Roboto, Arial, sans-serif; }
-    #main  { position:absolute; inset:0; }
-    #a, #b { position:absolute; inset:0; width:100%; height:100%; border:0; background:#000; opacity:0; transition:opacity .25s ease; }
-    .show  { opacity:1; }
-    #splash { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#aaa; }
-    #status { position:absolute; left:0; right:0; bottom:0; padding:8px 12px; background:rgba(0,0,0,.55); font-size:13px; }
+    html,body{margin:0;padding:0;height:100%;background:#000;color:#ddd;font-family:Segoe UI,Roboto,Arial,sans-serif}
+    #a,#b{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;opacity:0;transition:opacity .25s}
+    .show{opacity:1}
+    #splash{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aaa}
+    #status{position:absolute;left:0;right:0;bottom:0;padding:8px 12px;background:rgba(0,0,0,.55);font-size:13px}
   </style>
 </head>
 <body>
   <div id="splash">Waiting for URL…</div>
-  <div id="main">
-    <iframe id="a" allow="autoplay; fullscreen"></iframe>
-    <iframe id="b" allow="autoplay; fullscreen"></iframe>
-  </div>
+  <iframe id="a" allow="autoplay; fullscreen"></iframe>
+  <iframe id="b" allow="autoplay; fullscreen"></iframe>
   <div id="status"></div>
   <script>
-    const NAMESPACE = 'urn:x-cast:streamweave.cast';
-    const FORCE_DEFAULT = false;
-    const forceQS = new URLSearchParams(location.search).get('force');
-    let forceDisplay = FORCE_DEFAULT || forceQS === '1' || forceQS === 'true';
-    const statusEl = document.getElementById('status');
-    const splashEl = document.getElementById('splash');
-    const iframeA  = document.getElementById('a');
-    const iframeB  = document.getElementById('b');
-    let current = iframeA;
-    let candidate = iframeB;
-    let reloadTimer = null;
+    var NAMESPACE = 'urn:x-cast:streamweave.cast';
+    var forceQS = (new URLSearchParams(location.search).get('force') || '').toLowerCase();
+    var forceDefault = (forceQS === '1' || forceQS === 'true');
 
-    function setStatus(msg) { statusEl.textContent = msg || ''; }
-    function swapIframes() {
-      try {
-        candidate.classList.add('show');
-        current.classList.remove('show');
-        const tmp = current; current = candidate; candidate = tmp;
-      } catch {}
+    var statusEl = document.getElementById('status');
+    var splashEl = document.getElementById('splash');
+    var a = document.getElementById('a'), b = document.getElementById('b'), current = a, candidate = b;
+
+    function setStatus(s){ statusEl.textContent = s || ''; }
+    function swap(){
+      candidate.classList.add('show');
+      current.classList.remove('show');
+      var t=current; current=candidate; candidate=t;
     }
-
-    function loadInIframe(url) {
-      clearTimeout(reloadTimer);
+    function loadInIframe(url){
       setStatus('Loading: ' + url);
-      splashEl.style.display = 'none';
+      splashEl.style.display='none';
       candidate.classList.remove('show');
-      candidate.src = 'about:blank';
-      setTimeout(() => {
-        candidate.onload = () => {
+      candidate.src='about:blank';
+      setTimeout(function(){
+        candidate.onload=function(){
           setStatus('Opened page: ' + url);
-          swapIframes();
-          candidate.onload = null;
+          swap();
+          candidate.onload=null;
         };
-        candidate.src = url;
-      }, 0);
+        candidate.src=url;
+      },0);
     }
 
-    function forceNavigate(url) {
+    function forceNavigate(url){
       setStatus('Force loading: ' + url);
-      splashEl.style.display = 'none';
-      setTimeout(() => { window.location.href = url; }, 250);
+      splashEl.style.display='none';
+      setTimeout(function(){ window.location.href = url; }, 250);
     }
 
-    const context = cast.framework.CastReceiverContext.getInstance();
-    // context.setInactivityTimeout(3600);
+    cast.receiver.logger.setLevelValue(0);
+    window.castReceiverManager = cast.receiver.CastReceiverManager.getInstance();
+    castReceiverManager.onReady = function(){ setStatus('Waiting for URL…'); };
 
-    context.addCustomMessageListener(NAMESPACE, (event) => {
-      try {
-        const data = typeof event.data === 'string' ? JSON.parse(event.data) : (event.data || {});
-        if (!data || data.type !== 'LOAD_URL' || !data.url) {
-          setStatus('Invalid LOAD_URL payload');
-          return;
-        }
-        const url = String(data.url);
-        const useForce = (typeof data.force === 'boolean') ? data.force : forceDisplay;
-
-        if (useForce) forceNavigate(url);
-        else          loadInIframe(url);
-      } catch (ex) {
+    var messageBus = castReceiverManager.getCastMessageBus(NAMESPACE);
+    messageBus.onMessage = function(event){
+      try{
+        var data = event && event.data ? JSON.parse(event.data) : {};
+        if(!data || data.type !== 'LOAD_URL' || !data.url){ setStatus('Invalid LOAD_URL payload'); return; }
+        var url = String(data.url);
+        var useForce = (typeof data.force === 'boolean') ? data.force : forceDefault;
+        if(useForce) forceNavigate(url); else loadInIframe(url);
+        messageBus.send(event.senderId, JSON.stringify({ ok:true, url }));
+      }catch(ex){
         setStatus('Error: ' + (ex && ex.message ? ex.message : ex));
       }
-    });
-    context.start();
+    };
 
-    window.addEventListener('keydown', (e) => {
-      if ((e.key || '').toLowerCase() === 'f') {
-        forceDisplay = !forceDisplay;
-        setStatus('Force Display is now ' + (forceDisplay ? 'ON' : 'OFF'));
+    castReceiverManager.start({ statusText: 'Receiver starting' });
+    window.addEventListener('keydown', function(e){
+      if((e.key||'').toLowerCase()==='f'){
+        forceDefault = !forceDefault;
+        setStatus('Force Display is now ' + (forceDefault ? 'ON' : 'OFF'));
       }
     });
   </script>
